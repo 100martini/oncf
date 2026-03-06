@@ -653,6 +653,47 @@
   margin-top: 8px;
 }
 
+/* Member list inside custom project cards (creator view) */
+.project-members-list {
+  margin-top: 10px;
+  border-top: 1px solid rgba(185, 180, 199, 0.1);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.project-member-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--light);
+}
+
+.project-member-login {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-pending-tag {
+  opacity: 0.55;
+  font-size: 11px;
+}
+
+.member-remove-btn {
+  padding: 2px 6px;
+  font-size: 13px;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.member-remove-btn:hover {
+  opacity: 1;
+}
+
 .badge-not-started {
   background: rgba(185, 180, 199, 0.06);
   color: var(--light);
@@ -1205,7 +1246,8 @@
   justify-content: center;
 }
 
-.team-card:hover .team-delete {
+.team-card:hover .team-delete,
+.project-card:hover .team-delete {
   opacity: 1;
 }
 
@@ -1417,9 +1459,9 @@
 }
 
 .response-badge.accepted {
-  background: rgb(29 25 37);
-  color: #22c55e;
-  border: 1px solid rgb(31 27 40);
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.25);
 }
 
 .response-badge.declined {

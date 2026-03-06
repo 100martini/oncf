@@ -1,60 +1,45 @@
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
 const prisma = require('../prisma');
-
-function normalizeSlug(slug) {
-  return slug.replace(/^42cursus-/, '');
-}
+const bcrypt = require('bcrypt'); // ✅ belongs here, at the top, never inside the object
 
 async function syncUserFrom42(userData, userId) {
-  const projectSlugs = (userData.projects_users || []).map(p => p.project?.slug).filter(Boolean);
-  const hasPythonProjects = projectSlugs.some(slug => normalizeSlug(slug).includes('python-module'));
-  const curriculum = hasPythonProjects ? 'new' : 'old';
-
-  const cursus42 = userData.cursus_users?.find(c => c.cursus?.slug === '42cursus' || c.cursus_id === 21);
-  const grade = cursus42?.grade || 'Cadet';
-
-  const curriculumRecord = await prisma.curriculum.findUnique({ where: { name: curriculum } });
+  const validatedSlugs = (userData.projects_users || [])
+    .filter(p => p['validated?'] === true)
+    .map(p => p.project?.slug)
+    .filter(Boolean);
 
   const allSlugs = (userData.projects_users || [])
     .map(p => p.project?.slug)
     .filter(Boolean);
 
-  const normalizedSlugs = allSlugs.map(normalizeSlug);
-
-  const pcEntries = curriculumRecord
-    ? await prisma.projectCurriculum.findMany({
-        where: {
-          curriculumId: curriculumRecord.id,
-          project: { slug: { in: normalizedSlugs } }
-        },
-        include: { project: true }
-      })
-    : [];
-
-  const slugToCircle = {};
-  for (const pc of pcEntries) {
-    slugToCircle[pc.project.slug] = pc.circle ?? pc.project.circle;
-  }
-
-  const fallbackProjects = await prisma.project.findMany({
-    where: { slug: { in: normalizedSlugs } }
+  const matchedValidated = await prisma.project.findMany({
+    where: { slug: { in: validatedSlugs } }
   });
-  for (const p of fallbackProjects) {
-    if (!(p.slug in slugToCircle)) {
-      slugToCircle[p.slug] = p.circle;
-    }
-  }
 
-  let highestCircle = 0;
-  for (const slug of normalizedSlugs) {
-    const circle = slugToCircle[slug];
-    if (circle !== undefined && circle > highestCircle) {
-      highestCircle = circle;
-    }
-  }
+  const matchedAll = await prisma.project.findMany({
+    where: { slug: { in: allSlugs } }
+  });
 
-  const currentCircle = Math.min(highestCircle, 6);
+  const highestValidatedCircle = matchedValidated.length > 0
+    ? Math.max(...matchedValidated.map(p => p.circle))
+    : 0;
+
+  const highestRegisteredCircle = matchedAll.length > 0
+    ? Math.max(...matchedAll.map(p => p.circle))
+    : 0;
+
+  const currentCircle = Math.max(
+    highestRegisteredCircle,
+    Math.min(highestValidatedCircle + 1, 6)
+  );
+
+  const projectSlugs = (userData.projects_users || []).map(p => p.project?.slug).filter(Boolean);
+  const hasPythonProjects = projectSlugs.some(slug => slug.includes('python-module'));
+  const curriculum = hasPythonProjects ? 'new' : 'old';
+
+  const cursus42 = userData.cursus_users?.find(c => c.cursus?.slug === '42cursus' || c.cursus_id === 21);
+  const grade = cursus42?.grade || 'Cadet';
 
   const intra42Slugs = new Set();
   const userProjects = userData.projects_users || [];
@@ -64,26 +49,18 @@ async function syncUserFrom42(userData, userId) {
     const is42Cursus = projectUser.cursus_ids?.includes(21);
     if (!is42Cursus) continue;
 
-    const rawSlug = projectUser.project.slug;
-    const normalized = normalizeSlug(rawSlug);
-    intra42Slugs.add(normalized);
+    intra42Slugs.add(projectUser.project.slug);
 
     let project = await prisma.project.findUnique({
-      where: { slug: normalized }
+      where: { slug: projectUser.project.slug }
     });
-
-    if (!project) {
-      project = await prisma.project.findUnique({
-        where: { slug: rawSlug }
-      });
-    }
 
     if (!project) {
       try {
         project = await prisma.project.create({
           data: {
-            slug: normalized,
-            name: projectUser.project.name || normalized,
+            slug: projectUser.project.slug,
+            name: projectUser.project.name || projectUser.project.slug,
             circle: 0,
             minTeam: 1,
             maxTeam: 1,
@@ -93,7 +70,7 @@ async function syncUserFrom42(userData, userId) {
         console.log(`Created outer core project: ${project.slug}`);
       } catch (err) {
         project = await prisma.project.findUnique({
-          where: { slug: normalized }
+          where: { slug: projectUser.project.slug }
         });
       }
     }
@@ -123,7 +100,7 @@ async function syncUserFrom42(userData, userId) {
   });
 
   for (const up of existingUserProjects) {
-    if (!intra42Slugs.has(up.project.slug) && !intra42Slugs.has(normalizeSlug(up.project.slug))) {
+    if (!intra42Slugs.has(up.project.slug)) {
       if (up.project.isOuterCore) {
         await prisma.userProject.delete({ where: { id: up.id } });
         console.log(`Removed unsubscribed project: ${up.project.slug}`);
@@ -134,7 +111,10 @@ async function syncUserFrom42(userData, userId) {
   return { currentCircle, curriculum, grade, cursus42 };
 }
 
+// Every method in here is a property of this object — they must be separated
+// by commas. No bare statements (like const/let/var) are allowed inside.
 const authController = {
+
   async redirect42(req, res) {
     const authUrl = `https://api.intra.42.fr/oauth/authorize?client_id=${process.env.CLIENT_ID}&redirect_uri=${process.env.REDIRECT_URI}&response_type=code`;
     console.log('Redirecting to 42 OAuth...');
@@ -307,6 +287,7 @@ const authController = {
         curriculum: user.curriculum,
         grade: user.grade,
         currentCircle: user.currentCircle,
+        bio: user.bio,
         projectsUsers: user.userProjects.map(up => ({
           project: {
             slug: up.project.slug,
@@ -337,14 +318,12 @@ const authController = {
           { login: { contains: q, mode: 'insensitive' } },
           { nickname: { contains: q, mode: 'insensitive' } }
         ],
-        id: { not: req.userId }
+        id: { not: req.userId },
+        // 42 projects can only have 42 intra users — always filter out normal (non-intra) users
+        intraId: { not: null }
       };
 
       if (projectSlug === 'ft_transcendence') {
-        if (grade) {
-          if (grade === 'Cadet') where.grade = 'Cadet';
-          else where.grade = { not: 'Cadet' };
-        }
       } else {
         if (curriculum) where.curriculum = curriculum;
         if (grade) {
@@ -393,6 +372,136 @@ const authController = {
       })));
     } catch (error) {
       console.error('Error searching users:', error);
+      res.status(500).json({ error: 'Failed to search users' });
+    }
+  }, // ✅ comma here — more methods follow
+
+  async register(req, res) {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required.' });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    }
+
+    try {
+      const existing = await prisma.user.findFirst({ where: { email } });
+      if (existing) {
+        return res.status(409).json({ error: 'An account with this email already exists.' });
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 12);
+
+      const user = await prisma.user.create({
+        data: {
+          email,
+          password: hashedPassword,
+          login: email.split('@')[0],
+          displayName: email.split('@')[0],
+          campus: 'Unknown',
+          curriculum: 'old',
+          grade: 'Cadet',
+          level: 0,
+          wallet: 0,
+          correctionPoints: 0,
+          currentCircle: 0
+        }
+      });
+
+      const token = jwt.sign(
+        { userId: user.id, login: user.login },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      res.status(201).json({ token });
+    } catch (error) {
+      console.error('Register error:', error.message);
+      res.status(500).json({ error: 'Registration failed. Please try again.' });
+    }
+  }, // ✅ comma here too
+
+  async login(req, res) {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required.' });
+    }
+
+    try {
+      const user = await prisma.user.findFirst({ where: { email } });
+
+      // Same error message for "not found" and "wrong password" — prevents
+      // attackers from discovering which emails are registered in your system
+      if (!user || !user.password) {
+        return res.status(401).json({ error: 'Invalid email or password.' });
+      }
+
+      const passwordMatch = await bcrypt.compare(password, user.password);
+      if (!passwordMatch) {
+        return res.status(401).json({ error: 'Invalid email or password.' });
+      }
+
+      const token = jwt.sign(
+        { userId: user.id, login: user.login },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      res.json({ token });
+    } catch (error) {
+      console.error('Login error:', error.message);
+      res.status(500).json({ error: 'Login failed. Please try again.' });
+    }
+  },
+  async searchAllUsers(req, res) {
+    try {
+      const { q } = req.query;
+
+      if (!q || q.length < 2) {
+        return res.json([]);
+      }
+
+      const users = await prisma.user.findMany({
+        where: {
+          OR: [
+            { login: { contains: q, mode: 'insensitive' } },
+            { nickname: { contains: q, mode: 'insensitive' } },
+            { displayName: { contains: q, mode: 'insensitive' } }
+          ],
+          id: { not: req.userId } // exclude yourself from results
+        },
+        select: {
+          id: true,
+          intraId: true,
+          login: true,
+          displayName: true,
+          avatar: true,
+          customAvatar: true,
+          nickname: true,
+          campus: true,
+          level: true,
+          grade: true
+        },
+        take: 10
+      });
+
+      res.json(users.map(u => ({
+        id: u.id,
+        intraId: u.intraId,
+        login: u.login,
+        displayName: u.displayName,
+        avatar: u.customAvatar || u.avatar,
+        nickname: u.nickname,
+        campus: u.campus,
+        level: u.level,
+        grade: u.grade
+      })));
+    } catch (error) {
+      console.error('Error searching all users:', error);
       res.status(500).json({ error: 'Failed to search users' });
     }
   }

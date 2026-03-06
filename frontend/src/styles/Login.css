@@ -154,3 +154,80 @@
     padding: 16px 8px;
   }
 }
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0;
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #333;
+}
+
+.tab-switcher {
+  display: flex;
+  border-bottom: 2px solid #333;
+  margin-bottom: 20px;
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 10px;
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.tab-btn.active {
+  color: #fff;
+  border-bottom: 2px solid #00babc; /* adjust to match your accent color */
+  margin-bottom: -2px; /* aligns the border with the container's bottom border */
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-form input {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: #1a1a2e; /* adjust to match your card background */
+  color: #fff;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.auth-form input:focus {
+  border-color: #00babc;
+}
+
+.btn-submit {
+  padding: 12px;
+  border-radius: 8px;
+  border: none;
+  background: #00babc;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-submit:hover {
+  opacity: 0.85;
+}

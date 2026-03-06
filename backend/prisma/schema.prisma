@@ -9,10 +9,12 @@ datasource db {
 
 model User {
   id               Int       @id @default(autoincrement())
-  intraId          Int       @unique
+  intraId          Int?       @unique
   login            String    @unique
   displayName      String?
   email            String?
+  password         String?
+  bio              String?
   avatar           String?
   nickname         String?
   customAvatar     String?
@@ -39,6 +41,8 @@ model User {
   @@index([login])
   @@index([curriculum])
   @@index([nickname])
+
+  createdProjects Project[] @relation("CreatedProjects")
 }
 
 model Friendship {
@@ -68,16 +72,21 @@ model Curriculum {
 }
 
 model Project {
-  id          Int      @id @default(autoincrement())
-  slug        String   @unique
-  name        String
-  circle      Int
-  minTeam     Int      @default(1)
-  maxTeam     Int      @default(1)
-  isOuterCore Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            Int       @id @default(autoincrement())
+  slug          String    @unique
+  name          String
+  description   String?
+  circle        Int
+  minTeam       Int       @default(1)
+  maxTeam       Int       @default(1)
+  isOuterCore   Boolean   @default(false)
+  isUserCreated Boolean   @default(false)
+  deadline      DateTime?
+  createdById   Int?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
+  createdBy        User?              @relation("CreatedProjects", fields: [createdById], references: [id])
   projectCurricula ProjectCurriculum[]
   teams            Team[]
   userProjects     UserProject[]
@@ -85,13 +94,14 @@ model Project {
   @@index([slug])
   @@index([circle])
   @@index([isOuterCore])
+  @@index([isUserCreated])
+  @@index([createdById])
 }
 
 model ProjectCurriculum {
-  id           Int  @id @default(autoincrement())
+  id           Int @id @default(autoincrement())
   projectId    Int
   curriculumId Int
-  circle       Int?
 
   project    Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
   curriculum Curriculum @relation(fields: [curriculumId], references: [id], onDelete: Cascade)
